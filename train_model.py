@@ -56,8 +56,8 @@ def train():
         # FIX BUG 6: dynamic baseline filter instead of hardcoded cpu<35
         # On machines that idle at 30-34%, hardcoded filter leaves almost
         # no training rows. Use 50th percentile as adaptive cutoff.
-        cpu_cutoff = max(35.0, float(df["cpu"].quantile(0.60)))
-        ram_cutoff = max(98.5, float(df["ram"].quantile(0.90)))
+        cpu_cutoff = min(35.0, max(20.0, float(df["cpu"].quantile(0.60))))
+        ram_cutoff = min(95.0, max(85.0, float(df["ram"].quantile(0.85))))
         baseline = df[(df["cpu"] <= cpu_cutoff) & (df["ram"] <= ram_cutoff)].copy()
         print(f"Baseline filter: cpu <= {cpu_cutoff:.1f}% and ram <= {ram_cutoff:.1f}%")
         print(f"Clean baseline rows selected: {len(baseline)}")

@@ -8,6 +8,9 @@ import psutil
 import io
 import subprocess
 import sys
+import warnings
+
+warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG & CSS
@@ -151,9 +154,12 @@ def is_process_currently_running(process_name):
         return True
     pname_clean = process_name.strip().lower()
     base_name = pname_clean[:-4] if pname_clean.endswith(".exe") else pname_clean
-    for p in psutil.process_iter(['name']):
+    for p in psutil.process_iter(['name', 'cmdline']):
         try:
             name = (p.info.get('name') or "").strip().lower()
+            cmdline = " ".join(p.info.get('cmdline') or []).lower()
+            if "controlled_workload" in pname_clean and "controlled_workload" in cmdline:
+                return True
             if not name:
                 continue
             proc_base = name[:-4] if name.endswith(".exe") else name
@@ -352,24 +358,7 @@ if not unlocked:
 # ─────────────────────────────────────────────
 DEFAULT_WHITELIST = """System Idle Process
 svchost.exe
-lsass.exe
-SearchIndexer.exe
-MsMpEng.exe
-RuntimeBroker.exe
-explorer.exe
-WmiPrvSE.exe
-dllhost.exe
-taskhostw.exe
-sihost.exe
-chrome.exe
-msedge.exe
-firefox.exe
-Code.exe
-sqlservr.exe
-python.exe
-node.exe
-git.exe
-java.exe"""
+lsass.exe"""
 
 defaults = {
     "alert_log":          [],
@@ -380,7 +369,7 @@ defaults = {
     "whitelist_raw":      DEFAULT_WHITELIST,
     "refresh_rate":       2,
     "history_rows":       60,
-    "score_threshold":    -0.720,
+    "score_threshold":    -0.600,
     "auto_kill":          False,
 }
 for k, v in defaults.items():

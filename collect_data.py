@@ -3,6 +3,9 @@ import time
 import csv
 import os
 import pandas as pd
+import warnings
+
+warnings.filterwarnings("ignore")
 
 filename = "system_data.csv"
 COLUMNS  = ["timestamp", "cpu", "ram", "disk", "ram_used_gb", "ram_total_gb",
@@ -25,12 +28,16 @@ def get_top_process():
     current_state = {}
     results = []
     
-    for p in psutil.process_iter(['pid', 'name']):
+    for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
             pid = p.info['pid']
             name = p.info.get('name')
             if pid == OWN_PID or not name:
                 continue
+            
+            cmdline = " ".join(p.info.get('cmdline') or [])
+            if "controlled_workload" in cmdline.lower():
+                name = "controlled_workload.py"
             
             cpu_t = p.cpu_times()
             total_time = cpu_t.user + cpu_t.system
@@ -68,21 +75,14 @@ def get_proc_count():
 
 def check_and_fix_csv():
     """
-    Returns True if file exists with correct or compatible columns.
-    Returns False if file doesn't exist (needs new header).
+    Returns True if file exists with exact COLUMNS header.
+    Returns False if file doesn't exist or needs header.
     """
     if not os.path.exists(filename):
         return False
     try:
         existing = pd.read_csv(filename, nrows=1)
-        existing_cols = existing.columns.tolist()
-        if existing_cols == COLUMNS:
-            return True
-        else:
-            print(f"WARNING: CSV has {len(existing_cols)} columns, expected {len(COLUMNS)}.")
-            print(f"  Existing : {existing_cols}")
-            print(f"  Expected : {COLUMNS}")
-            return False  # Trigger writing new header or column adaptation
+        return existing.columns.tolist() == COLUMNS
     except Exception:
         return False
 
@@ -105,14 +105,16 @@ with open(filename, "a", newline="") as f:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
-    print("=" * 50)
-    print("  AI Sentinel — Data Collector")
-    print(f"  Own PID  : {OWN_PID}")
-    print(f"  Total RAM: {ram_total_gb} GB")
-    print(f"  Columns  : {len(COLUMNS)}")
-    print("=" * 50)
-    print(f"Writing to: {filename}")
-    print("Press Ctrl+C to stop.\n")
+    print("=" * 60)
+    print("  AI Sentinel — Real-Time OS Anomaly Monitor")
+    print("=" * 60)
+    print(f"  Monitoring PID : {OWN_PID}")
+    print(f"  CPU Cores      : {psutil.cpu_count()}")
+    print(f"  Total RAM      : {ram_total_gb} GB")
+    print(f"  Telemetry File : {filename}")
+    print("=" * 60)
+    print("  Active OS Monitoring Started...")
+    print("  Press Ctrl+C to stop.\n")
 
     sample_count = 0
     while True:
@@ -147,10 +149,8 @@ with open(filename, "a", newline="") as f:
             f.flush()
 
             sample_count += 1
-            if sample_count % 10 == 0:
-                print(f"[{sample_count:5d}] [{ts_str}] CPU:{cpu:5.1f}%  "
-                      f"RAM:{ram:5.1f}% ({ram_used_gb:.1f}/{ram_total_gb:.1f}GB)  "
-                      f"Swap:{swap_percent:.0f}%  Top:{top_app}")
+            if sample_count % 5 == 0:
+                print(f"[{sample_count:6d}] [{ts_str}] CPU:{cpu:5.1f}% | RAM:{ram:5.1f}% ({ram_used_gb:.1f}/{ram_total_gb:.1f}GB) | Procs:{proc_count:3d} | Active Top: {top_app}")
 
         except KeyboardInterrupt:
             print(f"\nStopped after {sample_count} samples.")
