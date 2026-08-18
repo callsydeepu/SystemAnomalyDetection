@@ -4,38 +4,56 @@ AI Sentinel is a real-time, machine-learning-powered Operating System Anomaly De
 
 ---
 
-## 🛡️ Key Features
+## 📁 Project Directory Structure
 
-- **Behavior-Based Anomaly Detection**: Evaluates processes dynamically using statistical ML features (`cpu`, `ram`, `disk`, `proc`, `cpu_delta`, `cpu_z`, `net_total`, `net_roll`) rather than process names or hardcoded lists.
-- **Real-Time OS Telemetry Collection**: Continuously samples CPU%, RAM%, Swap%, Disk%, Network throughput deltas (bytes sent/received), total process count, and active top processes via `psutil`.
-- **Isolation Forest ML Model**: Uses an unsupervised `IsolationForest` (200 trees, `StandardScaler`) trained on clean host baseline activity.
-- **Temporal Persistence Validation**: Requires 3 consecutive suspicious observations before escalating a threat, preventing false alarms from brief 1-second workload spikes.
-- **Live Process Lifecycle Enforcement**: Verifies host OS process state in real time (`psutil.process_iter()`). When a process terminates, it is immediately cleared from current threat cards.
-- **Explainable AI (XAI)**: Identifies and displays exact metric Z-score deviations relative to learned baseline statistics whenever an anomaly is flagged.
-- **Safe Demonstration Mechanism**: Includes a safe local test script (`demo/controlled_workload.py`) for live mentor/examiner demonstrations.
-- **Interactive SOC Dashboard**: 4-tab Streamlit interface featuring Live Monitoring, Memory Metrics, Security Audit Logs, and SOC Settings.
-
----
-
-## 📁 Repository Structure
-
-```
-SystemAnomalyDetection/
-├── collect_data.py       # Real-time telemetry collector script
-├── train_model.py         # Isolation Forest model training pipeline
-├── app.py                 # Streamlit Security Operations Center (SOC) dashboard
-├── run_app.py             # Entry-point runner script
-├── build_exe.bat          # PyInstaller build script for standalone EXE creation
-├── demo/                  # Demonstration suite for mentors/examiners
-│   ├── controlled_workload.py  # Safe local CPU math workload script
-│   └── README_DEMO.md          # 10-step mentor presentation guide
-├── system_data.csv        # Baseline telemetry dataset (11-column format)
-├── anomaly_model.pkl      # Trained Isolation Forest model artifact
-├── scaler.pkl             # Trained StandardScaler artifact
-├── feature_list.pkl       # ML feature definition list
-├── baseline_stats.pkl     # Learned feature baseline statistics (means & stds)
-├── requirements.txt       # Essential Python dependencies
-└── .gitignore             # Ignored directories (.venv, __pycache__, logs)
+```text
+adaptive-os-anomaly-detection/
+│
+├── README.md                          # Project documentation & execution guide
+├── requirements.txt                   # Essential Python dependencies
+├── .gitignore                         # Git ignore definitions (.venv, __pycache__, logs)
+├── run.py                             # Root application entry point
+│
+├── src/                               # Core application modules
+│   ├── __init__.py
+│   ├── monitoring/
+│   │   ├── __init__.py
+│   │   ├── process_monitor.py         # Process enumeration & live lifecycle check
+│   │   └── system_monitor.py          # Real-time psutil telemetry collector
+│   ├── features/
+│   │   ├── __init__.py
+│   │   └── feature_engineering.py     # 8-feature calculation & rolling Z-scores
+│   ├── anomaly_detection/
+│   │   ├── __init__.py
+│   │   ├── model.py                   # Model loader & IsolationForest wrapper
+│   │   ├── baseline.py                # Baseline stats & Explainable AI (XAI) breakdown
+│   │   └── predictor.py               # Real-time predictor & persistence check
+│   └── dashboard/
+│       ├── __init__.py
+│       └── app.py                     # Streamlit SOC Dashboard
+│
+├── models/                            # Trained ML artifacts
+│   ├── anomaly_model.pkl
+│   ├── baseline_stats.pkl
+│   ├── scaler.pkl
+│   └── feature_list.pkl
+│
+├── data/                              # Data storage
+│   └── system_data.csv                # 11-column telemetry dataset
+│
+├── demo/                              # Safe demonstration suite
+│   ├── controlled_workload.py         # Local CPU computational math workload
+│   └── README_DEMO.md                 # 10-step mentor presentation guide
+│
+├── scripts/                           # Utility & management scripts
+│   ├── collect_data.py                # Standalone telemetry collector runner
+│   ├── train_model.py                 # Isolation Forest model training pipeline
+│   └── build_exe.bat                  # PyInstaller standalone build script
+│
+└── tests/                             # Unit & integration test suite
+    ├── test_monitoring.py             # Process monitoring unit tests
+    ├── test_features.py               # Feature engineering unit tests
+    └── test_anomaly_detection.py      # ML anomaly detection unit tests
 ```
 
 ---
@@ -50,34 +68,38 @@ cd SystemAnomalyDetection
 pip install -r requirements.txt
 ```
 
-### 2. Start Live Telemetry Collector
-In Terminal 1:
+### 2. Launch Streamlit SOC Dashboard (Root Entry Point)
 ```powershell
-python collect_data.py
-```
-
-### 3. Launch Streamlit SOC Dashboard
-In Terminal 2:
-```powershell
-python -m streamlit run app.py
-```
-Or run using the wrapper:
-```powershell
-python run_app.py
+python run.py
 ```
 Open [http://localhost:8501](http://localhost:8501) in your browser.
 
-### 4. Run Safe Demonstration Workload
-In Terminal 3 (Optional for Live Demonstration):
+### 3. Start Telemetry Collector (Standalone Terminal)
+```powershell
+python scripts/collect_data.py
+```
+
+### 4. Retrain Baseline Model (Optional)
+To recalibrate the Isolation Forest model on your machine's current workload:
+```powershell
+python scripts/train_model.py
+```
+
+### 5. Run Controlled Demonstration Workload
+For live mentor/examiner demonstrations:
 ```powershell
 python demo/controlled_workload.py 30
 ```
-See [demo/README_DEMO.md](demo/README_DEMO.md) for the complete 10-step mentor presentation flow.
+See [demo/README_DEMO.md](demo/README_DEMO.md) for the complete 10-step presentation procedure.
 
-### 5. Retrain Baseline Model (Optional)
-To recalibrate the Isolation Forest model on your machine's current workload:
+### 6. Run Unit Tests
 ```powershell
-python train_model.py
+python -c "import tests.test_monitoring as tm, tests.test_features as tf, tests.test_anomaly_detection as ta; tm.test_get_proc_count(); tm.test_get_top_process(); tm.test_is_process_currently_running(); tf.test_engineer_features_structure(); tf.test_cpu_delta_calculation(); ta.test_model_loading(); ta.test_predictor_evaluation(); print('All unit tests passed cleanly!')"
+```
+
+### 7. Build Standalone Executable
+```cmd
+scripts\build_exe.bat
 ```
 
 ---
@@ -92,22 +114,26 @@ python train_model.py
                 │ psutil telemetry @ 1s
                 ▼
 ┌───────────────────────────────┐
-│       collect_data.py         │  ← Background Telemetry Monitor
-│   (10 metrics + timestamp)    │
+│     src/monitoring/           │  ← Background Telemetry Monitor
+│  (system_monitor.py)          │
 └───────────────┬───────────────┘
                 │ CSV append
                 ▼
 ┌───────────────────────────────┐
-│       system_data.csv         │  ← Data Repository
+│     data/system_data.csv      │  ← Data Repository
 └───────┬───────────────┬───────┘
         │               │
         │ fit           │ predict / score
         ▼               ▼
 ┌───────────────┐ ┌───────────────┐
-│train_model.py │ │    app.py     │  ← Streamlit SOC Dashboard
-│ (Standard     │ │ (Streamlit)   │     - Live Monitor
-│  Scaler +     │ └───────────────┘     - Memory Usage
-│  Isolation    │                       - Security Audit Log
-│  Forest)      │                       - Settings
+│scripts/       │ │src/dashboard/ │  ← Streamlit SOC Dashboard
+│train_model.py │ │ (app.py)      │     - Live Monitor
+│ (Isolation    │ └───────────────┘     - Memory Usage
+│  Forest)      │                       - Security Audit Log
+└───────┬───────┘                       - Settings
+        │ saves
+        ▼
+┌───────────────┐
+│   models/*.pkl│
 └───────────────┘
 ```
