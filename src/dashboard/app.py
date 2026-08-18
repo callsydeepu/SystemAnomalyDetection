@@ -224,9 +224,9 @@ def kill_top_cpu_process(proc_name):
 # COLD-START CALIBRATION WIZARD
 # ─────────────────────────────────────────────
 def run_calibration_wizard():
-    st.warning("⚠️ **System Not Calibrated**: No telemetry model found (`models/anomaly_model.pkl`).")
+    st.warning("⚠️ **System Not Calibrated**: Training data not found. Please run the data collection process to create your system baseline.")
     st.markdown("""
-    Welcome to **AI Sentinel SOC**. Before monitoring, the system must collect baseline telemetry from your OS to train the Isolation Forest anomaly detector.
+    Welcome to **AI Sentinel SOC**. Before monitoring can start on your computer, the system must collect baseline telemetry from your own operating system to train your machine's Isolation Forest anomaly detector.
     """)
     
     col_c1, col_c2 = st.columns(2)

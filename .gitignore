@@ -11,6 +11,10 @@ __pycache__/
 *.so
 .Python
 
+# Telemetry datasets & trained ML model artifacts (Machine-specific)
+data/*.csv
+models/*.pkl
+
 # Logs and databases
 *.log
 

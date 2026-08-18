@@ -2,6 +2,8 @@
 
 AI Sentinel is a real-time, machine-learning-powered Operating System Anomaly Detection platform. It continuously monitors live host telemetry, extracts statistical behavioral features, and leverages an Isolation Forest model to detect unusual process behavior and system anomalies without relying on hardcoded rules, fake anomaly flags, or pre-labeled attack data.
 
+> 🔒 **Privacy & Portability Guarantee**: This repository ships **zero personal telemetry data or pre-trained machine weights**. Every user who clones this project collects their own system telemetry and trains an adaptive baseline tailored specifically to their own computer.
+
 ---
 
 ## 📁 Project Directory Structure
@@ -30,16 +32,13 @@ adaptive-os-anomaly-detection/
 │   │   └── predictor.py               # Real-time predictor & persistence check
 │   └── dashboard/
 │       ├── __init__.py
-│       └── app.py                     # Streamlit SOC Dashboard
+│       └── app.py                     # Streamlit SOC Dashboard & Calibration Wizard
 │
-├── models/                            # Trained ML artifacts
-│   ├── anomaly_model.pkl
-│   ├── baseline_stats.pkl
-│   ├── scaler.pkl
-│   └── feature_list.pkl
+├── models/                            # User's trained ML artifacts (Created on setup)
+│   └── .gitkeep
 │
-├── data/                              # Data storage
-│   └── system_data.csv                # 11-column telemetry dataset
+├── data/                              # User's telemetry storage (Created on setup)
+│   └── .gitkeep
 │
 ├── demo/                              # Safe demonstration suite
 │   ├── controlled_workload.py         # Local CPU computational math workload
@@ -58,48 +57,52 @@ adaptive-os-anomaly-detection/
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 First-Time User Setup Guide
 
-### 1. Installation
-Clone the repository and install dependencies:
+Follow these 5 steps when setting up the project on a new computer:
+
+### Step 1: Clone Repository & Install Dependencies
 ```powershell
 git clone https://github.com/callsydeepu/SystemAnomalyDetection.git
 cd SystemAnomalyDetection
 pip install -r requirements.txt
 ```
 
-### 2. Launch Streamlit SOC Dashboard (Root Entry Point)
-```powershell
-python run.py
-```
-Open [http://localhost:8501](http://localhost:8501) in your browser.
-
-### 3. Start Telemetry Collector (Standalone Terminal)
+### Step 2: Collect Personal System Baseline Data
+Run the background telemetry collector to observe your computer's normal operating workload:
 ```powershell
 python scripts/collect_data.py
 ```
+*(Let it run for 1–2 minutes to record ~100 baseline observations in `data/system_data.csv`)*.
 
-### 4. Retrain Baseline Model (Optional)
-To recalibrate the Isolation Forest model on your machine's current workload:
+### Step 3: Train Your Machine's Anomaly Detection Model
+Train the Isolation Forest model on your machine's recorded baseline:
 ```powershell
 python scripts/train_model.py
 ```
+*(Generates your machine's trained artifacts in `models/`)*.
 
-### 5. Run Controlled Demonstration Workload
-For live mentor/examiner demonstrations:
+### Step 4: Start the Live SOC Dashboard
+Launch the dashboard from the project root:
+```powershell
+python run.py
+```
+*(Or simply run `python run.py` first, and the interactive **Cold-Start Calibration Wizard** will guide you through steps 2 and 3 automatically!)*
+
+Open [http://localhost:8501](http://localhost:8501) in your browser.
+
+### Step 5: Run Safe Controlled Demonstration (Optional)
+In a separate terminal, test the real-time detection pipeline:
 ```powershell
 python demo/controlled_workload.py 30
 ```
-See [demo/README_DEMO.md](demo/README_DEMO.md) for the complete 10-step presentation procedure.
+See [demo/README_DEMO.md](demo/README_DEMO.md) for the complete 10-step mentor presentation procedure.
 
-### 6. Run Unit Tests
+---
+
+## 🧪 Running Unit Tests
 ```powershell
 python -c "import tests.test_monitoring as tm, tests.test_features as tf, tests.test_anomaly_detection as ta; tm.test_get_proc_count(); tm.test_get_top_process(); tm.test_is_process_currently_running(); tf.test_engineer_features_structure(); tf.test_cpu_delta_calculation(); ta.test_model_loading(); ta.test_predictor_evaluation(); print('All unit tests passed cleanly!')"
-```
-
-### 7. Build Standalone Executable
-```cmd
-scripts\build_exe.bat
 ```
 
 ---
@@ -120,7 +123,7 @@ scripts\build_exe.bat
                 │ CSV append
                 ▼
 ┌───────────────────────────────┐
-│     data/system_data.csv      │  ← Data Repository
+│     data/system_data.csv      │  ← User Data Repository
 └───────┬───────────────┬───────┘
         │               │
         │ fit           │ predict / score
@@ -128,9 +131,9 @@ scripts\build_exe.bat
 ┌───────────────┐ ┌───────────────┐
 │scripts/       │ │src/dashboard/ │  ← Streamlit SOC Dashboard
 │train_model.py │ │ (app.py)      │     - Live Monitor
-│ (Isolation    │ └───────────────┘     - Memory Usage
-│  Forest)      │                       - Security Audit Log
-└───────┬───────┘                       - Settings
+│ (Isolation    │ └───────────────┘     - Cold-Start Wizard
+│  Forest)      │                       - Memory Usage
+└───────┬───────┘                       - Security Log
         │ saves
         ▼
 ┌───────────────┐
