@@ -224,7 +224,7 @@ def kill_top_cpu_process(proc_name):
 # COLD-START CALIBRATION WIZARD
 # ─────────────────────────────────────────────
 def run_calibration_wizard():
-    st.warning("⚠️ **System Not Calibrated**: Training data not found. Please run the data collection process to create your system baseline.")
+    st.warning("**System Not Calibrated**: Training data not found. Please run the data collection process to create your system baseline.")
     st.markdown("""
     Welcome to **AI Sentinel SOC**. Before monitoring can start on your computer, the system must collect baseline telemetry from your own operating system to train your machine's Isolation Forest anomaly detector.
     """)
@@ -237,15 +237,15 @@ def run_calibration_wizard():
     with col_c2:
         if DATA_FILE.exists():
             df_existing = pd.read_csv(DATA_FILE)
-            st.info(f"📊 Currently Collected Baseline Rows: **{len(df_existing)}** / 100 required")
+            st.info(f"Currently Collected Baseline Rows: **{len(df_existing)}** / 100 required")
         else:
-            st.info("📊 Currently Collected Baseline Rows: **0** / 100 required")
+            st.info("Currently Collected Baseline Rows: **0** / 100 required")
 
     running_proc = is_collector_running()
     if running_proc:
-        st.success(f"🟢 Telemetry Collector is RUNNING in background (PID: {running_proc.pid}).")
+        st.success(f"Telemetry Collector is RUNNING in background (PID: {running_proc.pid}).")
     else:
-        st.error("🔴 Telemetry Collector is currently STOPPED.")
+        st.error("elemetry Collector is currently STOPPED.")
 
     if DATA_FILE.exists():
         df_tmp = pd.read_csv(DATA_FILE)
@@ -254,8 +254,8 @@ def run_calibration_wizard():
         st.progress(progress)
         
         if num_rows >= 100:
-            st.success("✅ Sufficient baseline data collected! Click below to train the model.")
-            if st.button("🧠 Train Anomaly Detection Model Now", type="primary"):
+            st.success("Sufficient baseline data collected! Click below to train the model.")
+            if st.button("Train Anomaly Detection Model Now", type="primary"):
                 with st.spinner("Training Isolation Forest Model..."):
                     train_script = PROJECT_ROOT / "scripts" / "train_model.py"
                     res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
@@ -303,18 +303,18 @@ for k, v in defaults.items():
 # TABS
 # ─────────────────────────────────────────────
 tab_live, tab_memory, tab_history, tab_settings = st.tabs([
-    "🖥️ Live Monitor", "🧠 Memory Usage", "📋 Security Audit Log", "⚙️ Settings"
+    "Live Monitor", "Memory Usage", "Security Audit Log", "Settings"
 ])
 
 # ─────────────────────────────────────────────
 # SETTINGS TAB
 # ─────────────────────────────────────────────
 with tab_settings:
-    st.header("⚙️ SOC Settings")
+    st.header("SOC Settings")
     col_a, col_b = st.columns(2)
     
     with col_a:
-        st.subheader("🎛️ Detection Sensitivity")
+        st.subheader("Detection Sensitivity")
         st.session_state.refresh_rate = st.slider(
             "Refresh Rate (seconds)", 1, 5, st.session_state.refresh_rate)
         st.session_state.history_rows = st.slider(
@@ -324,17 +324,17 @@ with tab_settings:
             st.session_state.score_threshold, step=0.025,
             help="Lower score (more negative) = less sensitive. Higher score = more sensitive.")
         st.session_state.auto_kill = st.checkbox(
-            "🤖 Enable Automated Threat Response (Auto-Kill Malicious Top Process)",
+            "Enable Automated Threat Response (Auto-Kill Malicious Top Process)",
             st.session_state.auto_kill)
 
     with col_b:
-        st.subheader("📋 Process Whitelist")
+        st.subheader("Process Whitelist")
         st.session_state.whitelist_raw = st.text_area(
             "Ignored process names (one per line)",
             st.session_state.whitelist_raw, height=180)
         
-        st.subheader("🧠 Model Management")
-        if st.button("🔄 Retrain Anomaly Detection Model"):
+        st.subheader("Model Management")
+        if st.button("Retrain Anomaly Detection Model"):
             with st.spinner("Retraining Isolation Forest model on latest CSV data..."):
                 train_script = PROJECT_ROOT / "scripts" / "train_model.py"
                 res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
@@ -385,25 +385,18 @@ if "timestamp" in current:
 is_stale = data_age > 15
 
 # Evaluation via predictor module
-eval_res = evaluate_latest_sample(df, model, scaler, features, threshold=score_threshold)
+eval_res = evaluate_latest_sample(df, model, scaler, features, threshold=score_threshold, whitelist=whitelist)
 score = eval_res["score"]
 raw_is_anomaly = eval_res["raw_is_anomaly"]
 culprit = eval_res["culprit_proc"]
 is_currently_running = eval_res["is_currently_running"]
+threat_confidence = eval_res["threat_confidence"]
+sample_state = eval_res["sample_state"]
+system_state = eval_res["system_state"]
 
 is_whitelisted = culprit.lower() in whitelist
-real_anomaly = raw_is_anomaly and not is_whitelisted and not is_stale
-
-# Temporal Persistence Tracking (3 consecutive suspicious ticks required)
-if "consecutive_anomalies" not in st.session_state:
-    st.session_state.consecutive_anomalies = 0
-
-if real_anomaly:
-    st.session_state.consecutive_anomalies += 1
-else:
-    st.session_state.consecutive_anomalies = 0
-
-is_confirmed_threat = st.session_state.consecutive_anomalies >= 3
+real_anomaly = (sample_state in ["WARNING", "CRITICAL"]) and not is_whitelisted and not is_stale
+is_confirmed_threat = (system_state == "CRITICAL")
 
 # Compute Session Anomaly Trend
 df["is_anom"] = False
@@ -412,7 +405,7 @@ if len(df) > 0:
     X_hist_scaled = scaler.transform(X_hist)
     scores_hist = model.score_samples(X_hist_scaled)
     df["score"] = scores_hist
-    df["is_anom"] = df["score"] < score_threshold
+    df["is_anom"] = (df["score"] < score_threshold) | (df["cpu"] >= 95.0) | (df["ram"] >= 95.0)
 
 if "timestamp" in df.columns:
     df["minute"] = df["timestamp"].astype(str).str.slice(0, 16)
@@ -422,7 +415,7 @@ anom_per_min = df.groupby("minute")["is_anom"].sum().reset_index()
 anom_per_min.columns = ["minute", "anomalies"]
 
 # Automated Mitigation
-if is_confirmed_threat and is_currently_running and auto_kill:
+if is_confirmed_threat and is_currently_running and auto_kill and not is_whitelisted:
     now_t = time.time()
     if now_t - st.session_state.last_autokill_time > 10:
         success, msg = kill_top_cpu_process(culprit)
@@ -435,7 +428,7 @@ if is_confirmed_threat and is_currently_running and auto_kill:
             "details": msg
         })
         if success:
-            st.toast(f"🤖 Auto-Kill Triggered: {msg}")
+            st.toast(f"Auto-Kill Triggered: {msg}")
 
 # Alert Logging
 if is_confirmed_threat and is_currently_running:
@@ -450,7 +443,7 @@ if is_confirmed_threat and is_currently_running:
             "cpu":       current["cpu"],
             "ram":       current["ram"],
             "disk":      current["disk"],
-            "action":    "Auto-Killed" if auto_kill else "Flagged"
+            "action":    "Auto-Killed" if (auto_kill and not is_whitelisted) else "Flagged"
         })
 
 # ─────────────────────────────────────────────
@@ -460,17 +453,17 @@ with tab_live:
     # Header Control Bar
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
-        st.title("🖥️ AI Sentinel: Live Monitor Dashboard")
+        st.title("AI Sentinel: Live Monitor Dashboard")
     with col_h2:
         collector_p = is_collector_running()
         if collector_p:
-            st.success(f"🟢 Monitor Active (PID: {collector_p.pid})")
-            if st.button("⏹️ Stop Collector"):
+            st.success(f"Monitor Active (PID: {collector_p.pid})")
+            if st.button("Stop Collector"):
                 stop_collector()
                 st.rerun()
         else:
-            st.error("🔴 Monitor Stopped")
-            if st.button("▶️ Start Collector"):
+            st.error("Monitor Stopped")
+            if st.button("Start Collector"):
                 start_collector()
                 st.rerun()
 
@@ -478,31 +471,31 @@ with tab_live:
     if is_stale:
         st.markdown(f"""
         <div class="status-paused">
-            ⏸️ TELEMETRY PAUSED (Data is {data_age}s old — Collector is Offline)
+            TELEMETRY PAUSED (Data is {data_age}s old — Collector is Offline)
         </div>
         """, unsafe_allow_html=True)
-    elif is_confirmed_threat and is_currently_running:
+    elif system_state == "CRITICAL" and is_currently_running:
         st.markdown(f"""
         <div class="status-threat">
-            🚨 CONFIRMED ANOMALY FLAGGED: {culprit.upper()}
+            CONFIRMED ANOMALY FLAGGED: {culprit.upper()}
         </div>
         """, unsafe_allow_html=True)
-    elif is_confirmed_threat and not is_currently_running:
+    elif system_state == "CRITICAL" and not is_currently_running:
         st.markdown(f"""
         <div class="status-inactive">
-            ℹ️ HISTORICAL INACTIVE ANOMALY: {culprit.upper()} (Process Terminated on OS)
+            HISTORICAL INACTIVE ANOMALY: {culprit.upper()} (Process Terminated on OS)
         </div>
         """, unsafe_allow_html=True)
-    elif real_anomaly:
+    elif system_state == "WARNING":
         st.markdown(f"""
         <div class="status-evaluating">
-            ⚡ TRANSIENT SPIKE DETECTED ({st.session_state.consecutive_anomalies}/3) — EVALUATING {culprit.upper()}
+            SYSTEM WARNING: HIGH RESOURCE UTILIZATION / TRANSIENT SPIKE ({culprit.upper()})
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="status-secure">
-            🛡️ SYSTEM STATE: SECURE
+            SYSTEM STATE: SECURE
         </div>
         """, unsafe_allow_html=True)
 
@@ -511,18 +504,17 @@ with tab_live:
     with m1:
         if is_stale:
             st.metric("State Indicator", "PAUSED", help="Telemetry is stale")
-        elif is_confirmed_threat and is_currently_running:
-            st.metric("State Indicator", "THREAT", delta="HIGH RISK", delta_color="inverse")
-        elif is_confirmed_threat and not is_currently_running:
+        elif system_state == "CRITICAL" and is_currently_running:
+            st.metric("State Indicator", "CRITICAL", delta="HIGH RISK", delta_color="inverse")
+        elif system_state == "CRITICAL" and not is_currently_running:
             st.metric("State Indicator", "INACTIVE", delta="PROCESS TERMINATED")
-        elif real_anomaly:
-            st.metric("State Indicator", "EVALUATING", delta=f"Spike ({st.session_state.consecutive_anomalies}/3)")
+        elif system_state == "WARNING":
+            st.metric("State Indicator", "WARNING", delta="EVALUATING")
         else:
             st.metric("State Indicator", "SECURE", delta="NORMAL")
 
     with m2:
-        norm_score = max(0.0, min(100.0, (score_threshold - score) / (abs(score_threshold) + 1e-5) * 100))
-        st.metric("Threat Confidence", f"{norm_score:.1f}%", delta=f"score {score:.4f}")
+        st.metric("Threat Confidence", f"{threat_confidence:.1f}%", delta=f"score {score:.4f}")
 
     with m3:
         st.metric("CPU Usage", f"{current['cpu']:.1f}%", delta=f"Δ {current['cpu_delta']:.1f}%")
@@ -558,7 +550,7 @@ with tab_live:
     # Explainable AI (XAI) Section
     if real_anomaly:
         st.markdown("---")
-        st.markdown("### 🛡️ Threat Diagnostic Breakdown (Explainable AI)")
+        st.markdown("###Threat Diagnostic Breakdown (Explainable AI)")
         st.write("The features below triggered the anomaly classification based on deviation from baseline bounds:")
         
         explanations = compute_xai_explanations(current, stats, features)
@@ -580,22 +572,22 @@ with tab_live:
 
         # Threat Control Panel
         st.markdown("---")
-        st.subheader(f"⚡ Active Threat Mitigation Options for `{culprit.upper()}`")
+        st.subheader(f"Active Threat Mitigation Options for `{culprit.upper()}`")
         col_kill, col_whitelist = st.columns(2)
         with col_kill:
-            if st.button(f"🚫 Immediately Terminate Process ({culprit})", type="primary"):
+            if st.button(f"Immediately Terminate Process ({culprit})", type="primary"):
                 with st.spinner(f"Terminating {culprit}..."):
                     success, msg = kill_top_cpu_process(culprit)
                     if success:
                         if st.session_state.alert_log:
                             st.session_state.alert_log[-1]["action"] = "manually killed"
-                        st.toast(f"✅ {msg}")
+                        st.toast(f"{msg}")
                         time.sleep(1)
                         st.rerun()
                     else:
                         st.warning(msg)
         with col_whitelist:
-            if st.button(f"✅ Whitelist {culprit.upper()}"):
+            if st.button(f"Whitelist {culprit.upper()}"):
                 st.session_state.whitelist_raw += f"\n{culprit}"
                 st.toast(f"Added {culprit} to whitelist.")
                 time.sleep(1)
