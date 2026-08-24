@@ -41,10 +41,12 @@ def get_proc_count():
     except Exception:
         return 0
 
-def get_top_process():
+def get_top_process_details():
     """
-    Calculates CPU time delta per process over the sampling interval
-    to accurately identify the process using the most CPU.
+    Calculates CPU time delta per process over the sampling interval,
+    aggregates CPU usage across all process instances sharing the same process name
+    (e.g., summing multi-threaded or multi-process PowerShell background jobs),
+    and returns a tuple: (top_process_name, aggregated_proc_cpu_percent, process_cpu_map, ps_debug_info).
     """
     global _last_proc_cpu_state, _last_sample_time
     now = time.time()
@@ -52,7 +54,8 @@ def get_top_process():
     _last_sample_time = now
     
     current_state = {}
-    results = []
+    name_cpu_map = {}
+    ps_procs = []
     
     for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
@@ -73,20 +76,33 @@ def get_top_process():
                 prev_name, prev_time = _last_proc_cpu_state[pid]
                 if prev_name == name:
                     delta_time = max(0.0, total_time - prev_time)
-                    proc_cpu = round((delta_time / elapsed / NUM_CPUS) * 100.0, 1)
+                    # System-scaled CPU percentage (100% = ALL logical cores fully loaded)
+                    proc_cpu_system_scaled = (delta_time / elapsed / NUM_CPUS) * 100.0
+                    
                     if name != "System Idle Process":
-                        results.append((proc_cpu, name))
+                        name_cpu_map[name] = name_cpu_map.get(name, 0.0) + proc_cpu_system_scaled
+                        if "powershell" in name.lower() or "pwsh" in name.lower():
+                            ps_procs.append({
+                                "pid": pid,
+                                "name": name,
+                                "cpu_system_scaled": proc_cpu_system_scaled
+                            })
         except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
             pass
             
     _last_proc_cpu_state = current_state
     
-    if not results:
-        return "System"
+    if not name_cpu_map:
+        return "System", 0.0, {}, {"ps_count": len(ps_procs), "ps_procs": ps_procs}
         
-    results.sort(key=lambda x: x[0], reverse=True)
-    top_cpu, top_name = results[0]
+    sorted_procs = sorted(name_cpu_map.items(), key=lambda x: x[1], reverse=True)
+    top_name, top_cpu = sorted_procs[0]
     
-    if top_cpu > 0.5:
-        return top_name
-    return "System"
+    if top_cpu > 0.1:
+        return top_name, round(top_cpu, 1), name_cpu_map, {"ps_count": len(ps_procs), "ps_procs": ps_procs}
+    return "System", 0.0, name_cpu_map, {"ps_count": len(ps_procs), "ps_procs": ps_procs}
+
+def get_top_process():
+    """Returns top process name (backwards compatible helper)."""
+    top_name, _, _, _ = get_top_process_details()
+    return top_name

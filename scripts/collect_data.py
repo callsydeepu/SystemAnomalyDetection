@@ -19,11 +19,12 @@ COLUMNS = ["timestamp", "cpu", "ram", "disk", "ram_used_gb", "ram_total_gb",
            "swap_percent", "sent_delta", "recv_delta", "proc", "top_process"]
 OWN_PID = psutil.Process().pid
 
-from src.monitoring.process_monitor import get_proc_count, get_top_process
+from src.monitoring.process_monitor import get_proc_count, get_top_process, get_top_process_details
 from src.monitoring.system_monitor import check_and_fix_csv
 
 def main():
     file_needs_header = not check_and_fix_csv(filename)
+    num_cpus = psutil.cpu_count() or 1
     
     with open(filename, "a", newline="") as f:
         writer = csv.writer(f)
@@ -45,7 +46,7 @@ def main():
         print("  AI Sentinel — Real-Time OS Anomaly Monitor")
         print("=" * 60)
         print(f"  Monitoring PID : {OWN_PID}")
-        print(f"  CPU Cores      : {psutil.cpu_count()}")
+        print(f"  CPU Cores      : {num_cpus}")
         print(f"  Total RAM      : {ram_total_gb} GB")
         print(f"  Telemetry File : {filename}")
         print("=" * 60)
@@ -71,7 +72,7 @@ def main():
                 prev_net = net
 
                 proc_count = get_proc_count()
-                top_app = get_top_process()
+                top_app, top_cpu_val, proc_map, ps_debug = get_top_process_details()
 
                 writer.writerow([
                     ts_str, cpu, ram, disk,
@@ -83,7 +84,9 @@ def main():
 
                 sample_count += 1
                 if sample_count % 5 == 0:
-                    print(f"[{sample_count:6d}] [{ts_str}] CPU:{cpu:5.1f}% | RAM:{ram:5.1f}% ({ram_used_gb:.1f}/{ram_total_gb:.1f}GB) | Procs:{proc_count:3d} | Active Top: {top_app}")
+                    sorted_top5 = sorted(proc_map.items(), key=lambda x: x[1], reverse=True)[:5]
+                    top5_str = ", ".join([f"{name}: {val:.1f}%" for name, val in sorted_top5])
+                    print(f"[{sample_count:6d}] [{ts_str}] Total SysCPU:{cpu:5.1f}% (Cores:{num_cpus}) | RAM:{ram:5.1f}% ({ram_used_gb:.1f}/{ram_total_gb:.1f}GB) | Procs:{proc_count:3d} | Top App: {top_app} ({top_cpu_val:.1f}%) | PS Procs: {ps_debug['ps_count']} | Top 5: [{top5_str}]")
 
             except KeyboardInterrupt:
                 print(f"\nStopped after {sample_count} samples.")
