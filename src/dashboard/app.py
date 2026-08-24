@@ -34,7 +34,9 @@ from src.audit.audit_db import (
     clear_security_alerts,
     log_autokill_event,
     get_autokill_events,
-    clear_autokill_events
+    clear_autokill_events,
+    log_model_event,
+    get_model_events
 )
 
 # ─────────────────────────────────────────────
@@ -295,7 +297,15 @@ def run_calibration_wizard():
                     train_script = PROJECT_ROOT / "scripts" / "train_model.py"
                     res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
                     if res.returncode == 0:
-                        st.toast("Personal model trained successfully!")
+                        meta_init = load_model_metadata()
+                        log_model_event(
+                            time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "MODEL_INIT_COMPLETED",
+                            meta_init.get("model_version", "V1"),
+                            meta_init.get("training_samples", 100),
+                            "Initial personal anomaly model trained successfully."
+                        )
+                        st.toast("Personal model (V1) trained successfully!")
                         time.sleep(1)
                         st.rerun()
                     else:
@@ -392,49 +402,61 @@ with tab_settings:
         
         st.subheader("Personal Model Management")
         meta = load_model_metadata()
+        model_ver = meta.get('model_version', 'V1')
+        
+        total_accumulated_samples = 0
+        if DATA_FILE.exists():
+            try:
+                total_accumulated_samples = len(pd.read_csv(DATA_FILE))
+            except Exception:
+                total_accumulated_samples = meta.get('training_samples', 0)
+        else:
+            total_accumulated_samples = meta.get('training_samples', 0)
+
         st.markdown(f"""
-        <div style="background-color: #0f172a; padding: 15px; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 15px;">
-            <p style="margin:0; font-weight:600; color:#34d399;">Personal Baseline: Ready 🟢</p>
-            <p style="margin:4px 0 0 0; font-size:14px; color:#94a3b8;">
-                <strong>PC Name:</strong> {meta.get('pc_name', 'This PC')}<br>
-                <strong>Trained On:</strong> {meta.get('training_timestamp', 'N/A')}<br>
-                <strong>Baseline Samples:</strong> {meta.get('training_samples', 'N/A')}<br>
-                <strong>Model Type:</strong> {meta.get('model_type', 'IsolationForest')}
+        <div style="background-color: #0f172a; padding: 16px; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 15px;">
+            <p style="margin:0; font-weight:700; color:#34d399; font-size:16px;">MODEL STATUS: Active 🟢</p>
+            <p style="margin:8px 0 0 0; font-size:14px; color:#cbd5e1; line-height: 1.6;">
+                <strong>Model Version:</strong> {model_ver}<br>
+                <strong>Training Samples:</strong> {meta.get('training_samples', total_accumulated_samples):,}<br>
+                <strong>Accumulated Dataset:</strong> {total_accumulated_samples:,} rows<br>
+                <strong>Last Trained:</strong> {meta.get('training_timestamp', 'N/A')}<br>
+                <strong>Algorithm:</strong> {meta.get('model_type', 'Isolation Forest')}<br>
+                <strong>PC Name:</strong> {meta.get('pc_name', 'This PC')}
             </p>
         </div>
         """, unsafe_allow_html=True)
-        
-        if "show_recalibrate_confirm" not in st.session_state:
-            st.session_state.show_recalibrate_confirm = False
 
-        if not st.session_state.show_recalibrate_confirm:
-            if st.button("🔄 Relearn / Recalibrate My PC"):
-                st.session_state.show_recalibrate_confirm = True
-                st.rerun()
-        else:
-            st.warning("⚠️ **This will replace your current personal baseline and model.** Continue?")
-            col_rc1, col_rc2 = st.columns(2)
-            with col_rc1:
-                if st.button("❌ Cancel"):
-                    st.session_state.show_recalibrate_confirm = False
-                    st.rerun()
-            with col_rc2:
-                if st.button("🚀 Start Recalibration", type="primary"):
-                    st.session_state.show_recalibrate_confirm = False
-                    if DATA_FILE.exists():
-                        try:
-                            DATA_FILE.unlink()
-                        except Exception:
-                            pass
-                    for p in get_model_file_paths().values():
-                        if p.exists():
-                            try:
-                                p.unlink()
-                            except Exception:
-                                pass
-                    st.toast("Previous baseline cleared. Starting recalibration wizard...")
+        if st.button("🧠 RETRAIN MODEL", type="primary", use_container_width=True):
+            now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+            log_model_event(now_str, "MODEL_RETRAIN_STARTED", model_ver, total_accumulated_samples, "User initiated model retraining on accumulated telemetry dataset.")
+            with st.spinner(f"Retraining Isolation Forest on ALL accumulated telemetry ({total_accumulated_samples:,} rows)..."):
+                train_script = PROJECT_ROOT / "scripts" / "train_model.py"
+                res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+                if res.returncode == 0:
+                    new_meta = load_model_metadata()
+                    new_ver = new_meta.get("model_version", "V2")
+                    new_samples = new_meta.get("training_samples", total_accumulated_samples)
+                    log_model_event(
+                        time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "MODEL_RETRAIN_COMPLETED",
+                        new_ver,
+                        new_samples,
+                        f"Retraining complete. Activated Model {new_ver}."
+                    )
+                    st.toast(f"Retrained successfully! Model {new_ver} is now ACTIVE ({new_samples:,} samples).")
                     time.sleep(1)
                     st.rerun()
+                else:
+                    log_model_event(
+                        time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "MODEL_RETRAIN_FAILED",
+                        model_ver,
+                        total_accumulated_samples,
+                        f"Retraining failed. Retained active Model {model_ver}. Error: {res.stderr[:200]}"
+                    )
+                    st.error(f"Retraining failed. Working model {model_ver} remains active safely.\nError details:\n{res.stderr}")
+
 
 
 whitelist = [
@@ -497,7 +519,7 @@ if len(df) > 0:
     X_hist_scaled = scaler.transform(X_hist)
     scores_hist = model.score_samples(X_hist_scaled)
     df["score"] = scores_hist
-    df["is_anom"] = (df["score"] < score_threshold) | (df["cpu"] >= 95.0) | (df["ram"] >= 95.0)
+    df["is_anom"] = (df["score"] < score_threshold)
 
 if "timestamp" in df.columns:
     df["minute"] = df["timestamp"].astype(str).str.slice(0, 16)
@@ -552,6 +574,9 @@ with tab_live:
                 st.rerun()
 
     # Status Banner
+    state_reason = eval_res.get("state_reason", "")
+    print(f"[SOC DIAGNOSTIC] {current.get('timestamp')} | SysCPU: {current.get('cpu', 0):.1f}% | SysRAM: {current.get('ram', 0):.1f}% | TopProc: {culprit} | ML Score: {score:.4f} | Threshold: {score_threshold:.4f} | State: {system_state} | Reason: {state_reason}")
+
     if is_stale:
         st.markdown(f"""
         <div class="status-paused">
@@ -561,25 +586,27 @@ with tab_live:
     elif system_state == "CRITICAL" and is_currently_running:
         st.markdown(f"""
         <div class="status-threat">
-            CONFIRMED ANOMALY FLAGGED: {culprit.upper()}
+            🚨 SYSTEM ANOMALY DETECTED (Score: {score:.4f} &lt; Threshold: {score_threshold:.4f})<br>
+            <span style="font-size:16px; font-weight:400; color:#fca5a5;">Top CPU process at tick: <code>{culprit.upper()}</code> ({current.get('cpu', 0):.1f}% CPU)</span>
         </div>
         """, unsafe_allow_html=True)
     elif system_state == "CRITICAL" and not is_currently_running:
         st.markdown(f"""
         <div class="status-inactive">
-            HISTORICAL INACTIVE ANOMALY: {culprit.upper()} (Process Terminated on OS)
+            HISTORICAL INACTIVE ANOMALY (Top process <code>{culprit.upper()}</code> terminated on OS)
         </div>
         """, unsafe_allow_html=True)
     elif system_state == "WARNING":
         st.markdown(f"""
         <div class="status-evaluating">
-            SYSTEM WARNING: HIGH RESOURCE UTILIZATION / TRANSIENT SPIKE ({culprit.upper()})
+            ⚠️ SYSTEM WARNING: ELEVATED ANOMALY RISK / TRANSIENT SPIKE<br>
+            <span style="font-size:16px; font-weight:400; color:#fde68a;">Top CPU process at tick: <code>{culprit.upper()}</code> ({current.get('cpu', 0):.1f}% CPU)</span>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="status-secure">
-            SYSTEM STATE: SECURE
+            🛡️ SYSTEM STATE: SECURE
         </div>
         """, unsafe_allow_html=True)
 
@@ -656,7 +683,7 @@ with tab_live:
 
         # Threat Control Panel
         st.markdown("---")
-        st.subheader(f"Active Threat Mitigation Options for `{culprit.upper()}`")
+        st.subheader(f"Process Mitigation Options for Top CPU Contributor `{culprit.upper()}`")
         col_kill, col_whitelist = st.columns(2)
         with col_kill:
             if st.button(f"Immediately Terminate Process ({culprit})", type="primary"):
@@ -745,6 +772,12 @@ with tab_history:
         st.markdown("---")
         st.subheader("🤖 Automated Response Mitigation Logs")
         st.dataframe(pd.DataFrame(saved_autokill))
+
+    saved_model_events = get_model_events()
+    if saved_model_events:
+        st.markdown("---")
+        st.subheader("🧠 Model Retraining & Version History")
+        st.dataframe(pd.DataFrame(saved_model_events))
 
 # ─────────────────────────────────────────────
 # REFRESH ENGINE

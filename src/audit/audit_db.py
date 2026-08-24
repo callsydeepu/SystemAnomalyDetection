@@ -36,6 +36,17 @@ def init_audit_db():
                 dedup_key TEXT UNIQUE
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS model_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                training_samples INTEGER,
+                details TEXT,
+                dedup_key TEXT UNIQUE
+            )
+        """)
         conn.commit()
 
 def log_security_alert(timestamp, process, score, cpu, ram, disk, action):
@@ -105,3 +116,25 @@ def clear_autokill_events():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM autokill_logs")
         conn.commit()
+
+def log_model_event(timestamp, event_type, model_version, training_samples, details):
+    """Inserts a model retraining lifecycle event into persistent SQLite DB."""
+    init_audit_db()
+    dedup_key = f"{timestamp}_{event_type}_{model_version}_{training_samples}"
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO model_events (timestamp, event_type, model_version, training_samples, details, dedup_key)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (str(timestamp), str(event_type), str(model_version), int(training_samples), str(details), dedup_key))
+        conn.commit()
+
+def get_model_events():
+    """Returns all model retraining events as a list of dicts (newest first)."""
+    init_audit_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT timestamp, event_type, model_version, training_samples, details FROM model_events ORDER BY id DESC")
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]

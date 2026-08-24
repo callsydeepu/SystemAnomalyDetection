@@ -1,8 +1,10 @@
 {
-  "model_version": "1.0.0",
+  "model_version": "V4",
+  "model_version_num": 4,
   "feature_version": "1.0.0",
-  "training_timestamp": "2026-08-24 15:24:31",
-  "training_samples": 102,
+  "training_timestamp": "2026-08-24 18:14:46",
+  "training_samples": 2536,
+  "baseline_clean_samples": 1711,
   "model_type": "IsolationForest",
   "contamination": 0.01,
   "feature_list": [

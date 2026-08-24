@@ -1,4 +1,3 @@
-import pytest
 import os
 from pathlib import Path
 from src.audit.audit_db import (
@@ -8,6 +7,8 @@ from src.audit.audit_db import (
     log_autokill_event,
     get_autokill_events,
     clear_autokill_events,
+    log_model_event,
+    get_model_events,
     DB_PATH
 )
 
@@ -41,3 +42,11 @@ def test_audit_db_persistence_and_deduplication():
     # 4. Clear alerts
     clear_security_alerts()
     assert len(get_security_alerts()) == 0
+
+def test_model_event_logging():
+    log_model_event("2026-08-24 15:00:00", "MODEL_RETRAIN_COMPLETED", "V_TEST", 15284, "Retrained successfully.")
+    events = get_model_events()
+    assert len(events) >= 1
+    found = any(e["model_version"] == "V_TEST" and e["training_samples"] == 15284 for e in events)
+    assert found
+

@@ -29,10 +29,14 @@ def load_model_metadata():
     if meta_path.exists():
         try:
             with open(meta_path, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                if "model_version" not in data:
+                    data["model_version"] = "V1"
+                return data
         except Exception:
             pass
     return {}
+
 
 def load_trained_models():
     """
