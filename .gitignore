@@ -17,6 +17,10 @@ models/*.pkl
 
 # Logs and databases
 *.log
+*.db
+*.sqlite
+*.sqlite3
+scratch/
 
 # PyInstaller / Build artifacts
 build/

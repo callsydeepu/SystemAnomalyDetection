@@ -28,6 +28,14 @@ from src.features.feature_engineering import engineer_features, FEATURES
 from src.anomaly_detection.model import load_trained_models, check_models_exist
 from src.anomaly_detection.baseline import compute_xai_explanations
 from src.anomaly_detection.predictor import evaluate_latest_sample
+from src.audit.audit_db import (
+    log_security_alert,
+    get_security_alerts,
+    clear_security_alerts,
+    log_autokill_event,
+    get_autokill_events,
+    clear_autokill_events
+)
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG & CSS
@@ -439,13 +447,8 @@ if is_confirmed_threat and is_currently_running and auto_kill and not is_whiteli
     if now_t - st.session_state.last_autokill_time > 10:
         success, msg = kill_top_cpu_process(culprit)
         st.session_state.last_autokill_time = now_t
-        st.session_state.auto_kill_log.append({
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "target": culprit,
-            "score": round(score, 4),
-            "success": success,
-            "details": msg
-        })
+        ts_ak = time.strftime("%Y-%m-%d %H:%M:%S")
+        log_autokill_event(ts_ak, culprit, score, success, msg)
         if success:
             st.toast(f"Auto-Kill Triggered: {msg}")
 
@@ -455,15 +458,12 @@ if is_confirmed_threat and is_currently_running:
     if (now_t - st.session_state.last_alert_time > 10) or (culprit != st.session_state.last_alert_proc):
         st.session_state.last_alert_time = now_t
         st.session_state.last_alert_proc = culprit
-        st.session_state.alert_log.append({
-            "timestamp": current.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S")),
-            "process":   culprit,
-            "score":     round(score, 4),
-            "cpu":       current["cpu"],
-            "ram":       current["ram"],
-            "disk":      current["disk"],
-            "action":    "Auto-Killed" if (auto_kill and not is_whitelisted) else "Flagged"
-        })
+        ts_alert = current.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S"))
+        act_alert = "Auto-Killed" if (auto_kill and not is_whitelisted) else "Flagged"
+        log_security_alert(
+            ts_alert, culprit, round(score, 4),
+            current["cpu"], current["ram"], current["disk"], act_alert
+        )
 
 # ─────────────────────────────────────────────
 # LIVE MONITOR TAB
@@ -654,10 +654,11 @@ with tab_memory:
 # ─────────────────────────────────────────────
 with tab_history:
     st.header("📋 Security Audit & Threat Log")
-    if not st.session_state.alert_log:
+    saved_alerts = get_security_alerts()
+    if not saved_alerts:
         st.info("No security alerts logged during this SOC session.")
     else:
-        log_df = pd.DataFrame(st.session_state.alert_log[::-1])
+        log_df = pd.DataFrame(saved_alerts)
         st.dataframe(log_df)
         
         csv_buf = io.StringIO()
@@ -669,13 +670,16 @@ with tab_history:
             mime="text/csv"
         )
         if st.button("🗑️ Clear SOC Alert Logs"):
-            st.session_state.alert_log = []
+            clear_security_alerts()
+            clear_autokill_events()
+            st.toast("Security Audit Logs cleared.")
             st.rerun()
             
-    if st.session_state.auto_kill_log:
+    saved_autokill = get_autokill_events()
+    if saved_autokill:
         st.markdown("---")
         st.subheader("🤖 Automated Response Mitigation Logs")
-        st.dataframe(pd.DataFrame(st.session_state.auto_kill_log[::-1]))
+        st.dataframe(pd.DataFrame(saved_autokill))
 
 # ─────────────────────────────────────────────
 # REFRESH ENGINE
