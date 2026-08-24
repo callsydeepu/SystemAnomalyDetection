@@ -1,3 +1,8 @@
+import os
+os.environ["PYTHONWARNINGS"] = "ignore"
+import warnings
+warnings.filterwarnings("ignore")
+
 import streamlit.web.cli as stcli
 import sys
 from pathlib import Path

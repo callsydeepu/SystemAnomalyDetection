@@ -44,6 +44,8 @@ def train():
 
         print(f"Loaded {len(df)} usable rows from {DATA_FILE}")
 
+        df_engineered = engineer_features(df)
+
         cpu_cutoff = min(35.0, max(20.0, float(df["cpu"].quantile(0.60))))
         ram_cutoff = min(95.0, max(85.0, float(df["ram"].quantile(0.85))))
         baseline = df[(df["cpu"] <= cpu_cutoff) & (df["ram"] <= ram_cutoff)].copy()
@@ -70,7 +72,7 @@ def train():
         print(f"\nTraining IsolationForest on {len(X_train_scaled)} clean rows...")
         model.fit(X_train_scaled)
 
-        df_full = engineer_features(df)
+        df_full = df_engineered
         X_full = scaler.transform(df_full[FEATURES].values)
         preds = model.predict(X_full)
         scores = model.score_samples(X_full)

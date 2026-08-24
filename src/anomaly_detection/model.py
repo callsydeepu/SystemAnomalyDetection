@@ -32,6 +32,13 @@ def load_trained_models():
         scaler = joblib.load(paths["scaler"])
         features = joblib.load(paths["features"])
         stats = joblib.load(paths["stats"])
+        
+        scaler_n = getattr(scaler, "n_features_in_", None)
+        model_n = getattr(model, "n_features_in_", None)
+        if (scaler_n is not None and len(features) != scaler_n) or (model_n is not None and len(features) != model_n):
+            print(f"Model feature count mismatch detected (features: {len(features)}, scaler expecting: {scaler_n}, model expecting: {model_n}). Retraining required.")
+            return None, None, None, None
+
         return model, scaler, features, stats
     except Exception as e:
         print(f"Error loading model artifacts: {e}")

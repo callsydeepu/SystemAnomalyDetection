@@ -1,16 +1,18 @@
+import os
+import sys
+import warnings
+
+os.environ["PYTHONWARNINGS"] = "ignore"
+warnings.filterwarnings("ignore")
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
 import time
 import psutil
 import io
 import subprocess
-import sys
 from pathlib import Path
-import warnings
-
-warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
 # PATHS & IMPORTS FROM SRC
@@ -276,28 +278,32 @@ model, scaler, features, stats = load_trained_models()
 if model is None or scaler is None or features is None:
     run_calibration_wizard()
 
-# ─────────────────────────────────────────────
-# MAIN DASHBOARD STATE & SESSION DEFAULTS
-# ─────────────────────────────────────────────
 DEFAULT_WHITELIST = """System Idle Process
 svchost.exe
 lsass.exe"""
 
+model_default_threshold = float(getattr(model, "offset_", -0.600))
+
 defaults = {
-    "alert_log":          [],
-    "auto_kill_log":      [],
-    "last_alert_time":    0,
-    "last_alert_proc":    "",
-    "last_autokill_time": 0,
-    "whitelist_raw":      DEFAULT_WHITELIST,
-    "refresh_rate":       2,
-    "history_rows":       60,
-    "score_threshold":    -0.600,
-    "auto_kill":          False,
+    "alert_log":               [],
+    "auto_kill_log":           [],
+    "last_alert_time":         0,
+    "last_alert_proc":         "",
+    "last_autokill_time":      0,
+    "whitelist_raw":           DEFAULT_WHITELIST,
+    "refresh_rate":            2,
+    "history_rows":            60,
+    "score_threshold":         model_default_threshold,
+    "user_overrode_threshold": False,
+    "auto_kill":               False,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# If user has not explicitly overridden threshold, sync with model default
+if not st.session_state.get("user_overrode_threshold", False):
+    st.session_state.score_threshold = model_default_threshold
 
 # ─────────────────────────────────────────────
 # TABS
@@ -319,10 +325,22 @@ with tab_settings:
             "Refresh Rate (seconds)", 1, 5, st.session_state.refresh_rate)
         st.session_state.history_rows = st.slider(
             "History window (rows)", 30, 200, st.session_state.history_rows)
-        st.session_state.score_threshold = st.slider(
+        
+        current_threshold = st.session_state.score_threshold
+        chosen_threshold = st.slider(
             "Anomaly score threshold", -0.900, -0.300,
-            st.session_state.score_threshold, step=0.025,
-            help="Lower score (more negative) = less sensitive. Higher score = more sensitive.")
+            float(current_threshold), step=0.025,
+            help=f"Trained IsolationForest model default boundary (offset_): {model_default_threshold:.4f}. Slide to override threshold.")
+        if chosen_threshold != current_threshold:
+            st.session_state.score_threshold = chosen_threshold
+            st.session_state.user_overrode_threshold = True
+
+        if st.session_state.get("user_overrode_threshold", False):
+            if st.button("Reset Threshold to Model Default"):
+                st.session_state.score_threshold = model_default_threshold
+                st.session_state.user_overrode_threshold = False
+                st.rerun()
+
         st.session_state.auto_kill = st.checkbox(
             "Enable Automated Threat Response (Auto-Kill Malicious Top Process)",
             st.session_state.auto_kill)
@@ -340,6 +358,7 @@ with tab_settings:
                 res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
                 if res.returncode == 0:
                     st.toast("Model successfully retrained!")
+                    st.session_state.user_overrode_threshold = False
                     time.sleep(1)
                     st.rerun()
                 else:

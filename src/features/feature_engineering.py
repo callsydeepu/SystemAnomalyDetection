@@ -42,3 +42,4 @@ def engineer_features(df):
             df[col] = pd.to_numeric(df[col], errors="coerce").replace([np.inf, -np.inf], 0).fillna(0)
 
     return df
+

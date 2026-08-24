@@ -5,7 +5,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=-0.600, whitelist=None):
+def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=None, whitelist=None):
     """
     Evaluates latest row from engineered telemetry DataFrame against IsolationForest and resource thresholds.
     Returns dict containing:
@@ -17,6 +17,9 @@ def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=-0.
     - sample_state (str)
     - system_state (str)
     """
+    if threshold is None:
+        threshold = float(getattr(model, "offset_", -0.600)) if model is not None else -0.600
+
     if df_engineered.empty or model is None or scaler is None:
         return {
             "score": 0.0,

@@ -16,6 +16,7 @@ def test_engineer_features_structure():
     df = pd.DataFrame(raw_data)
     df_feat = engineer_features(df)
     
+    assert len(FEATURES) == 8
     for f in FEATURES:
         assert f in df_feat.columns
     assert not df_feat[FEATURES].isna().any().any()
