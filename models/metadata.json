@@ -1,0 +1,20 @@
+{
+  "model_version": "1.0.0",
+  "feature_version": "1.0.0",
+  "training_timestamp": "2026-08-24 15:24:31",
+  "training_samples": 102,
+  "model_type": "IsolationForest",
+  "contamination": 0.01,
+  "feature_list": [
+    "cpu",
+    "ram",
+    "disk",
+    "proc",
+    "cpu_delta",
+    "cpu_z",
+    "net_total",
+    "net_roll"
+  ],
+  "pc_name": "DESKTOP-03S9OD9",
+  "os": "Windows-11-10.0.26200-SP0"
+}

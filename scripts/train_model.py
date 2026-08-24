@@ -88,7 +88,7 @@ def train():
             print("\nTop processes in flagged rows:")
             print(df_full[df_full["anomaly"] == -1]["top_process"].value_counts().head(8).to_string())
 
-        # Save all 4 artifacts to models/
+        # Save all artifacts to models/
         joblib.dump(model,    MODELS_DIR / "anomaly_model.pkl")
         joblib.dump(scaler,   MODELS_DIR / "scaler.pkl")
         joblib.dump(FEATURES, MODELS_DIR / "feature_list.pkl")
@@ -99,11 +99,32 @@ def train():
         }
         joblib.dump(stats, MODELS_DIR / "baseline_stats.pkl")
 
+        import json
+        import socket
+        import platform
+        from datetime import datetime
+
+        metadata = {
+            "model_version": "1.0.0",
+            "feature_version": "1.0.0",
+            "training_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "training_samples": int(len(X_train_scaled)),
+            "model_type": "IsolationForest",
+            "contamination": 0.01,
+            "feature_list": FEATURES,
+            "pc_name": socket.gethostname(),
+            "os": platform.platform()
+        }
+
+        with open(MODELS_DIR / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
         print("\n--- Training Complete ---")
         print(f"Saved: {MODELS_DIR / 'anomaly_model.pkl'}")
         print(f"Saved: {MODELS_DIR / 'scaler.pkl'}")
         print(f"Saved: {MODELS_DIR / 'feature_list.pkl'}")
         print(f"Saved: {MODELS_DIR / 'baseline_stats.pkl'}")
+        print(f"Saved: {MODELS_DIR / 'metadata.json'}")
 
     except Exception as e:
         import traceback

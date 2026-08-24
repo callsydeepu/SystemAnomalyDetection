@@ -25,7 +25,7 @@ MODELS_DIR = PROJECT_ROOT / "models"
 
 from src.monitoring.process_monitor import is_process_currently_running
 from src.features.feature_engineering import engineer_features, FEATURES
-from src.anomaly_detection.model import load_trained_models, check_models_exist
+from src.anomaly_detection.model import load_trained_models, check_models_exist, load_model_metadata, get_model_file_paths
 from src.anomaly_detection.baseline import compute_xai_explanations
 from src.anomaly_detection.predictor import evaluate_latest_sample
 from src.audit.audit_db import (
@@ -231,46 +231,71 @@ def kill_top_cpu_process(proc_name):
     return False, f"No active process matching '{proc_name}' could be terminated."
 
 # ─────────────────────────────────────────────
-# COLD-START CALIBRATION WIZARD
+# FIRST-TIME SETUP & PERSONAL BASELINE WIZARD
 # ─────────────────────────────────────────────
 def run_calibration_wizard():
-    st.warning("**System Not Calibrated**: Training data not found. Please run the data collection process to create your system baseline.")
+    st.title("🛡️ Welcome to AI Sentinel")
+    st.subheader("Personal Anomaly Model Setup")
+    st.info("AI Sentinel needs to learn your PC's normal behavior before monitoring can begin.")
+    
     st.markdown("""
-    Welcome to **AI Sentinel SOC**. Before monitoring can start on your computer, the system must collect baseline telemetry from your own operating system to train your machine's Isolation Forest anomaly detector.
+    Every computer has a unique baseline of background tasks, memory footprints, and network traffic.
+    AI Sentinel collects baseline telemetry directly from **this PC** to train your personal IsolationForest anomaly detector.
+    
+    *You can continue using your computer normally while baseline telemetry is being collected.*
     """)
+    
+    running_proc = is_collector_running()
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        if st.button("🚀 Start Background Data Collector", type="primary"):
-            start_collector()
-            st.rerun()
-    with col_c2:
-        if DATA_FILE.exists():
-            df_existing = pd.read_csv(DATA_FILE)
-            st.info(f"Currently Collected Baseline Rows: **{len(df_existing)}** / 100 required")
+        if not running_proc:
+            if st.button("🚀 Learn My PC", type="primary", use_container_width=True):
+                start_collector()
+                st.rerun()
         else:
-            st.info("Currently Collected Baseline Rows: **0** / 100 required")
-
-    running_proc = is_collector_running()
-    if running_proc:
-        st.success(f"Telemetry Collector is RUNNING in background (PID: {running_proc.pid}).")
-    else:
-        st.error("elemetry Collector is currently STOPPED.")
-
+            st.success(f"🟢 Telemetry Collector Active (PID: {running_proc.pid})")
+            
+    num_rows = 0
     if DATA_FILE.exists():
-        df_tmp = pd.read_csv(DATA_FILE)
-        num_rows = len(df_tmp)
+        try:
+            df_tmp = pd.read_csv(DATA_FILE)
+            num_rows = len(df_tmp)
+        except Exception:
+            num_rows = 0
+
+    with col_c2:
+        st.metric("Baseline Samples Collected", f"{num_rows} / 100 required")
+
+    if running_proc or num_rows > 0:
         progress = min(1.0, num_rows / 100.0)
-        st.progress(progress)
+        st.progress(progress, text=f"Learning your PC... ({num_rows}/100 samples)")
         
+        st.markdown("### Real-Time Baseline Subsystem Status")
+        b1, b2, b3, b4 = st.columns(4)
+        with b1:
+            st.markdown("🖥️ **CPU Behavior**")
+            st.caption("Learning..." if num_rows < 100 else "Ready ✓")
+        with b2:
+            st.markdown("🧠 **Memory Behavior**")
+            st.caption("Learning..." if num_rows < 100 else "Ready ✓")
+        with b3:
+            st.markdown("⚡ **Process Behavior**")
+            st.caption("Learning..." if num_rows < 100 else "Ready ✓")
+        with b4:
+            st.markdown("🌐 **Network Behavior**")
+            st.caption("Learning..." if num_rows < 100 else "Ready ✓")
+
+        st.markdown("---")
+
         if num_rows >= 100:
-            st.success("Sufficient baseline data collected! Click below to train the model.")
-            if st.button("Train Anomaly Detection Model Now", type="primary"):
-                with st.spinner("Training Isolation Forest Model..."):
+            st.success("Sufficient baseline data collected! Click below to train your personal model.")
+            if st.button("🧠 Train Personal Anomaly Model Now", type="primary", use_container_width=True):
+                with st.spinner("Training Personal Isolation Forest Model on THIS PC's Telemetry..."):
                     train_script = PROJECT_ROOT / "scripts" / "train_model.py"
                     res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
                     if res.returncode == 0:
-                        st.toast("Model trained successfully!")
+                        st.toast("Personal model trained successfully!")
                         time.sleep(1)
                         st.rerun()
                     else:
@@ -279,12 +304,18 @@ def run_calibration_wizard():
             st.info(f"Gathering telemetry samples... ({num_rows}/100 rows). Page will auto-refresh.")
             time.sleep(3)
             st.rerun()
+
     st.stop()
 
-# Load Trained Models or trigger wizard
+# Load Trained Personal Model or trigger setup wizard
 model, scaler, features, stats = load_trained_models()
 if model is None or scaler is None or features is None:
     run_calibration_wizard()
+else:
+    if "loaded_toast_shown" not in st.session_state:
+        st.toast("Personal model found ✓ Loading your PC's baseline...")
+        st.session_state.loaded_toast_shown = True
+
 
 DEFAULT_WHITELIST = """System Idle Process
 svchost.exe
@@ -357,20 +388,54 @@ with tab_settings:
         st.subheader("Process Whitelist")
         st.session_state.whitelist_raw = st.text_area(
             "Ignored process names (one per line)",
-            st.session_state.whitelist_raw, height=180)
+            st.session_state.whitelist_raw, height=140)
         
-        st.subheader("Model Management")
-        if st.button("Retrain Anomaly Detection Model"):
-            with st.spinner("Retraining Isolation Forest model on latest CSV data..."):
-                train_script = PROJECT_ROOT / "scripts" / "train_model.py"
-                res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
-                if res.returncode == 0:
-                    st.toast("Model successfully retrained!")
-                    st.session_state.user_overrode_threshold = False
+        st.subheader("Personal Model Management")
+        meta = load_model_metadata()
+        st.markdown(f"""
+        <div style="background-color: #0f172a; padding: 15px; border-radius: 8px; border: 1px solid #1e293b; margin-bottom: 15px;">
+            <p style="margin:0; font-weight:600; color:#34d399;">Personal Baseline: Ready 🟢</p>
+            <p style="margin:4px 0 0 0; font-size:14px; color:#94a3b8;">
+                <strong>PC Name:</strong> {meta.get('pc_name', 'This PC')}<br>
+                <strong>Trained On:</strong> {meta.get('training_timestamp', 'N/A')}<br>
+                <strong>Baseline Samples:</strong> {meta.get('training_samples', 'N/A')}<br>
+                <strong>Model Type:</strong> {meta.get('model_type', 'IsolationForest')}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if "show_recalibrate_confirm" not in st.session_state:
+            st.session_state.show_recalibrate_confirm = False
+
+        if not st.session_state.show_recalibrate_confirm:
+            if st.button("🔄 Relearn / Recalibrate My PC"):
+                st.session_state.show_recalibrate_confirm = True
+                st.rerun()
+        else:
+            st.warning("⚠️ **This will replace your current personal baseline and model.** Continue?")
+            col_rc1, col_rc2 = st.columns(2)
+            with col_rc1:
+                if st.button("❌ Cancel"):
+                    st.session_state.show_recalibrate_confirm = False
+                    st.rerun()
+            with col_rc2:
+                if st.button("🚀 Start Recalibration", type="primary"):
+                    st.session_state.show_recalibrate_confirm = False
+                    if DATA_FILE.exists():
+                        try:
+                            DATA_FILE.unlink()
+                        except Exception:
+                            pass
+                    for p in get_model_file_paths().values():
+                        if p.exists():
+                            try:
+                                p.unlink()
+                            except Exception:
+                                pass
+                    st.toast("Previous baseline cleared. Starting recalibration wizard...")
                     time.sleep(1)
                     st.rerun()
-                else:
-                    st.error(f"Retraining failed: {res.stderr}")
+
 
 whitelist = [
     p.strip().lower()
