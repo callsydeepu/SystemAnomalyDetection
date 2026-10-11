@@ -17,12 +17,14 @@ def main():
         tm.test_get_proc_count()
         tm.test_get_top_process()
         tm.test_is_process_currently_running()
+        tm.test_disk_anchor_and_os_process_immunity()
         print("   -> PASSED")
 
         print("\n2. Testing Feature Engineering Module...")
         import tests.test_features as tf
         tf.test_engineer_features_structure()
         tf.test_cpu_delta_calculation()
+        tf.test_engineer_features_empty_and_missing_columns()
         print("   -> PASSED")
 
         print("\n3. Testing Anomaly Detection & Predictor Module...")

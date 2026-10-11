@@ -17,13 +17,29 @@ COLUMNS = ["timestamp", "cpu", "ram", "disk", "ram_used_gb", "ram_total_gb",
 
 from src.monitoring.process_monitor import get_proc_count, get_top_process
 
+def get_system_disk_anchor():
+    """Returns the primary drive anchor on Windows or '/' on Unix."""
+    if os.name == "nt":
+        return Path.cwd().anchor or "C:\\"
+    return "/"
+
 def check_and_fix_csv(file_path=DATA_FILE):
-    """Returns True if CSV exists with exact 11 COLUMNS header."""
+    """
+    Returns True if CSV exists with exact 11 COLUMNS header.
+    If the file exists but has an invalid header, backs it up and resets the header safely.
+    """
     if not file_path.exists():
         return False
     try:
+        if file_path.stat().st_size == 0:
+            return False
         existing = pd.read_csv(file_path, nrows=1)
-        return existing.columns.tolist() == COLUMNS
+        if existing.columns.tolist() == COLUMNS:
+            return True
+        # If columns do not match, safely preserve old file and signal header recreation
+        backup_corrupt = file_path.parent / f"system_data_badheader_{int(time.time())}.csv"
+        file_path.rename(backup_corrupt)
+        return False
     except Exception:
         return False
 
@@ -41,7 +57,11 @@ def collect_telemetry_sample(prev_net=None):
     
     sw = psutil.swap_memory()
     swap_percent = sw.percent
-    disk = psutil.disk_usage('/').percent
+    
+    try:
+        disk = psutil.disk_usage(get_system_disk_anchor()).percent
+    except Exception:
+        disk = 0.0
     
     net = psutil.net_io_counters()
     if prev_net:

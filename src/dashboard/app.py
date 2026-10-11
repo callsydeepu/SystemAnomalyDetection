@@ -182,10 +182,25 @@ def is_collector_running():
             pass
     return None
 
+PROTECTED_PROCESSES = {
+    "system", "unknown", "system idle process", "registry",
+    "explorer.exe", "svchost.exe", "lsass.exe", "csrss.exe",
+    "winlogon.exe", "smss.exe", "services.exe", "dwm.exe",
+    "fontdrvhost.exe", "sihost.exe", "taskhostw.exe", "ctfmon.exe",
+    "conhost.exe"
+}
+
+def _get_python_executable():
+    if getattr(sys, "frozen", False):
+        import shutil
+        return shutil.which("python") or shutil.which("python3") or sys.executable
+    return sys.executable
+
 def start_collector():
     p = is_collector_running()
     if not p:
-        cmd = [sys.executable, str(PROJECT_ROOT / "scripts" / "collect_data.py")]
+        py_exe = _get_python_executable()
+        cmd = [py_exe, str(PROJECT_ROOT / "scripts" / "collect_data.py")]
         subprocess.Popen(cmd, cwd=str(PROJECT_ROOT))
         time.sleep(1)
 
@@ -199,16 +214,22 @@ def stop_collector():
             pass
 
 def kill_top_cpu_process(proc_name):
-    if not proc_name or proc_name.lower() in ["system", "unknown", "system idle process"]:
-        return False, "Cannot terminate core OS / System Idle process."
+    if not proc_name:
+        return False, "Process name cannot be empty."
     
     pname_clean = proc_name.strip().lower()
     base_name = pname_clean[:-4] if pname_clean.endswith(".exe") else pname_clean
     
+    if pname_clean in PROTECTED_PROCESSES or base_name in {p[:-4] for p in PROTECTED_PROCESSES}:
+        return False, f"Process '{proc_name}' is a critical OS component and is protected from termination."
+    
+    collector_p = is_collector_running()
+    collector_pid = collector_p.pid if collector_p else None
+    
     killed_any = False
     messages = []
     
-    for p in psutil.process_iter(['pid', 'name']):
+    for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
             name = (p.info.get('name') or "").strip().lower()
             if not name:
@@ -217,8 +238,13 @@ def kill_top_cpu_process(proc_name):
             
             if name == pname_clean or proc_base == base_name:
                 pid = p.info['pid']
-                if pid == os.getpid():
+                if pid == os.getpid() or (collector_pid is not None and pid == collector_pid):
                     continue
+                # If target is python, protect non-workload python instances
+                if proc_base in ("python", "python3"):
+                    cmdline = " ".join(p.info.get('cmdline') or []).lower()
+                    if "controlled_workload" not in cmdline and "controlled_workload" in pname_clean:
+                        continue
                 p_obj = psutil.Process(pid)
                 p_obj.terminate()
                 killed_any = True
@@ -295,7 +321,8 @@ def run_calibration_wizard():
             if st.button("🧠 Train Personal Anomaly Model Now", type="primary", use_container_width=True):
                 with st.spinner("Training Personal Isolation Forest Model on THIS PC's Telemetry..."):
                     train_script = PROJECT_ROOT / "scripts" / "train_model.py"
-                    res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+                    py_exe = _get_python_executable()
+                    res = subprocess.run([py_exe, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
                     if res.returncode == 0:
                         meta_init = load_model_metadata()
                         log_model_event(
@@ -432,7 +459,8 @@ with tab_settings:
             log_model_event(now_str, "MODEL_RETRAIN_STARTED", model_ver, total_accumulated_samples, "User initiated model retraining on accumulated telemetry dataset.")
             with st.spinner(f"Retraining Isolation Forest on ALL accumulated telemetry ({total_accumulated_samples:,} rows)..."):
                 train_script = PROJECT_ROOT / "scripts" / "train_model.py"
-                res = subprocess.run([sys.executable, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+                py_exe = _get_python_executable()
+                res = subprocess.run([py_exe, str(train_script)], cwd=str(PROJECT_ROOT), capture_output=True, text=True)
                 if res.returncode == 0:
                     new_meta = load_model_metadata()
                     new_ver = new_meta.get("model_version", "V2")
@@ -477,8 +505,15 @@ if not DATA_FILE.exists():
     start_collector()
     st.rerun()
 
-df_raw = pd.read_csv(DATA_FILE)
-if len(df_raw) < 5:
+df_raw = None
+for _ in range(3):
+    try:
+        df_raw = pd.read_csv(DATA_FILE)
+        break
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, PermissionError):
+        time.sleep(0.1)
+
+if df_raw is None or len(df_raw) < 5:
     st.info("Collecting initial telemetry data... Please wait.")
     start_collector()
     time.sleep(2)
@@ -514,12 +549,17 @@ is_confirmed_threat = (system_state == "CRITICAL")
 
 # Compute Session Anomaly Trend
 df["is_anom"] = False
-if len(df) > 0:
-    X_hist = df[features].values
-    X_hist_scaled = scaler.transform(X_hist)
-    scores_hist = model.score_samples(X_hist_scaled)
-    df["score"] = scores_hist
-    df["is_anom"] = (df["score"] < score_threshold)
+if len(df) > 0 and len(features) > 0:
+    try:
+        X_hist = np.asarray(df[features].values, dtype=float)
+        X_hist = np.nan_to_num(X_hist, nan=0.0, posinf=0.0, neginf=0.0)
+        X_hist_scaled = scaler.transform(X_hist)
+        scores_hist = model.score_samples(X_hist_scaled)
+        df["score"] = scores_hist
+        df["is_anom"] = (df["score"] < score_threshold)
+    except Exception:
+        df["score"] = 0.0
+        df["is_anom"] = False
 
 if "timestamp" in df.columns:
     df["minute"] = df["timestamp"].astype(str).str.slice(0, 16)
@@ -549,7 +589,7 @@ if is_confirmed_threat and is_currently_running:
         act_alert = "Auto-Killed" if (auto_kill and not is_whitelisted) else "Flagged"
         log_security_alert(
             ts_alert, culprit, round(score, 4),
-            current["cpu"], current["ram"], current["disk"], act_alert
+            current.get("cpu", 0.0), current.get("ram", 0.0), current.get("disk", 0.0), act_alert
         )
 
 # ─────────────────────────────────────────────
@@ -646,9 +686,12 @@ with tab_live:
 
     with col2:
         st.subheader("Telemetry Anomaly Score (lower = suspicious)")
-        chart_score = df[["score"]].copy()
-        chart_score["threshold"] = score_threshold
-        st.line_chart(chart_score)
+        if "score" in df.columns:
+            chart_score = df[["score"]].copy()
+            chart_score["threshold"] = score_threshold
+            st.line_chart(chart_score)
+        else:
+            st.info("Calculating anomaly scores...")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -661,7 +704,7 @@ with tab_live:
     # Explainable AI (XAI) Section
     if real_anomaly:
         st.markdown("---")
-        st.markdown("###Threat Diagnostic Breakdown (Explainable AI)")
+        st.markdown("### Threat Diagnostic Breakdown (Explainable AI)")
         st.write("The features below triggered the anomaly classification based on deviation from baseline bounds:")
         
         explanations = compute_xai_explanations(current, stats, features)
@@ -690,8 +733,8 @@ with tab_live:
                 with st.spinner(f"Terminating {culprit}..."):
                     success, msg = kill_top_cpu_process(culprit)
                     if success:
-                        if st.session_state.alert_log:
-                            st.session_state.alert_log[-1]["action"] = "manually killed"
+                        ts_kill = time.strftime("%Y-%m-%d %H:%M:%S")
+                        log_autokill_event(ts_kill, culprit, score, True, f"Manual termination by SOC analyst: {msg}")
                         st.toast(f"{msg}")
                         time.sleep(1)
                         st.rerun()

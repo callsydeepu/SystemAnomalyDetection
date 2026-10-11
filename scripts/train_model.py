@@ -73,7 +73,9 @@ def train():
     curr_meta = get_current_metadata()
     current_version_num = int(curr_meta.get("model_version_num", 0))
     if current_version_num == 0 and curr_meta.get("model_version"):
-        current_version_num = 1
+        import re
+        m = re.search(r"\d+", str(curr_meta.get("model_version", "")))
+        current_version_num = int(m.group()) if m else 1
         
     new_version_num = current_version_num + 1 if current_version_num >= 1 else 1
     new_version_str = f"V{new_version_num}"
@@ -107,18 +109,17 @@ def train():
 
         df_engineered = engineer_features(df)
 
-        # Compute quantile thresholds for clean baseline subset
+        # Compute quantile thresholds for clean baseline subset from continuous series
         cpu_cutoff = min(35.0, max(20.0, float(df["cpu"].quantile(0.60))))
         ram_cutoff = min(95.0, max(85.0, float(df["ram"].quantile(0.85))))
-        baseline = df[(df["cpu"] <= cpu_cutoff) & (df["ram"] <= ram_cutoff)].copy()
+        baseline_engineered = df_engineered[(df_engineered["cpu"] <= cpu_cutoff) & (df_engineered["ram"] <= ram_cutoff)].copy()
         print(f"Baseline filter: cpu <= {cpu_cutoff:.1f}% and ram <= {ram_cutoff:.1f}%")
-        print(f"Clean baseline rows selected: {len(baseline)}")
+        print(f"Clean baseline rows selected: {len(baseline_engineered)}")
 
-        if len(baseline) < 50:
+        if len(baseline_engineered) < 50:
             print("WARNING: Very few clean baseline rows — using full accumulated dataset.")
-            baseline = df.copy()
+            baseline_engineered = df_engineered.copy()
 
-        baseline_engineered = engineer_features(baseline)
         X_train = baseline_engineered[FEATURES].values
 
         scaler = StandardScaler()

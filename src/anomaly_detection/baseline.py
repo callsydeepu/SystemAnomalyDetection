@@ -1,6 +1,7 @@
 import joblib
 from pathlib import Path
 import warnings
+import numpy as np
 
 warnings.filterwarnings("ignore")
 
@@ -18,27 +19,42 @@ FEATURE_NAMES = {
     "net_roll": "Rolling Network Throughput"
 }
 
-def load_baseline_stats():
-    if STATS_FILE.exists():
+def load_baseline_stats(stats_path=None):
+    target_path = Path(stats_path) if stats_path else STATS_FILE
+    if target_path.exists():
         try:
-            return joblib.load(STATS_FILE)
+            return joblib.load(target_path)
         except Exception:
             return None
     return None
+
+def _safe_float(v, default=0.0):
+    if v is None:
+        return default
+    try:
+        f = float(v)
+        return default if np.isnan(f) or np.isinf(f) else f
+    except (ValueError, TypeError):
+        return default
 
 def compute_xai_explanations(current_row, stats, features):
     """
     Computes Explainable AI (XAI) Z-score attributions relative to baseline means and stds.
     Returns list of explanation dicts for features with |z| >= 1.5.
     """
-    if not stats or "mean" not in stats or "std" not in stats:
+    if not stats or not isinstance(stats, dict) or "mean" not in stats or "std" not in stats:
         return []
         
     explanations = []
+    means = stats.get("mean") or {}
+    stds = stats.get("std") or {}
+    
     for f in features:
-        val = current_row.get(f, 0)
-        mean = stats["mean"].get(f, 0)
-        std = stats["std"].get(f, 1)
+        val = _safe_float(current_row.get(f, 0.0), default=0.0)
+        mean = _safe_float(means.get(f, 0.0), default=0.0)
+        std_raw = _safe_float(stds.get(f, 1.0), default=1.0)
+        std = std_raw if std_raw > 0 else 1.0
+        
         z = (val - mean) / (std + 1e-5)
         
         name = FEATURE_NAMES.get(f, f)

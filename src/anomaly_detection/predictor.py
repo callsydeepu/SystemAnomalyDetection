@@ -5,6 +5,12 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+def _clean_process_name(raw_name):
+    if raw_name is None or pd.isna(raw_name):
+        return "Unknown"
+    s = str(raw_name).strip()
+    return "Unknown" if s.lower() in ("", "nan", "none") else s
+
 def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=None, whitelist=None):
     """
     Evaluates latest row from engineered telemetry DataFrame against IsolationForest model.
@@ -26,7 +32,7 @@ def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=Non
     if threshold is None:
         threshold = float(getattr(model, "offset_", -0.600)) if model is not None else -0.600
 
-    if df_engineered.empty or model is None or scaler is None:
+    if df_engineered is None or len(df_engineered) == 0 or model is None or scaler is None:
         return {
             "score": 0.0,
             "threshold": threshold,
@@ -40,17 +46,23 @@ def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=Non
         }
         
     latest_row = df_engineered.iloc[-1]
-    X_latest = latest_row[features].values.reshape(1, -1)
+    raw_vals = [pd.to_numeric(latest_row.get(f, 0.0), errors="coerce") for f in features]
+    X_latest = np.asarray(raw_vals, dtype=float).reshape(1, -1)
+    X_latest = np.nan_to_num(X_latest, nan=0.0, posinf=0.0, neginf=0.0)
     X_scaled = scaler.transform(X_latest)
     
     score = float(model.score_samples(X_scaled)[0])
     raw_is_anomaly = score < threshold
     
-    culprit = str(latest_row.get("top_process", "Unknown"))
+    culprit = _clean_process_name(latest_row.get("top_process", "Unknown"))
     currently_running = is_process_currently_running(culprit)
     
     # Process Whitelisting normalization
-    whitelist_set = {w.strip().lower() for w in whitelist} if whitelist else set()
+    whitelist_set = {
+        str(w).strip().lower()
+        for w in whitelist
+        if w is not None and str(w).strip()
+    } if whitelist else set()
     is_whitelisted = culprit.lower() in whitelist_set
     
     # Calculate threat confidence derived strictly from ML anomaly score depth
@@ -63,7 +75,15 @@ def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=Non
     # Determine states for recent samples to enforce temporal persistence
     last_n = min(3, len(df_engineered))
     recent_rows = df_engineered.tail(last_n)
-    X_recent = recent_rows[features].values
+    
+    recent_matrix = []
+    for i in range(last_n):
+        row = recent_rows.iloc[i]
+        vals = [pd.to_numeric(row.get(f, 0.0), errors="coerce") for f in features]
+        recent_matrix.append(vals)
+        
+    X_recent = np.asarray(recent_matrix, dtype=float)
+    X_recent = np.nan_to_num(X_recent, nan=0.0, posinf=0.0, neginf=0.0)
     X_recent_scaled = scaler.transform(X_recent)
     recent_scores = model.score_samples(X_recent_scaled)
     
@@ -71,7 +91,7 @@ def evaluate_latest_sample(df_engineered, model, scaler, features, threshold=Non
     for i in range(last_n):
         r = recent_rows.iloc[i]
         s = float(recent_scores[i])
-        p = str(r.get("top_process", "Unknown")).lower()
+        p = _clean_process_name(r.get("top_process", "Unknown")).lower()
         
         is_proc_whitelisted = p in whitelist_set
         eff_s = (threshold + 1.0) if is_proc_whitelisted else s

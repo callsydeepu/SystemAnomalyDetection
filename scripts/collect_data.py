@@ -20,7 +20,7 @@ COLUMNS = ["timestamp", "cpu", "ram", "disk", "ram_used_gb", "ram_total_gb",
 OWN_PID = psutil.Process().pid
 
 from src.monitoring.process_monitor import get_proc_count, get_top_process, get_top_process_details
-from src.monitoring.system_monitor import check_and_fix_csv
+from src.monitoring.system_monitor import check_and_fix_csv, get_system_disk_anchor
 
 def main():
     file_needs_header = not check_and_fix_csv(filename)
@@ -64,7 +64,10 @@ def main():
 
                 sw = psutil.swap_memory()
                 swap_percent = sw.percent
-                disk = psutil.disk_usage('/').percent
+                try:
+                    disk = psutil.disk_usage(get_system_disk_anchor()).percent
+                except Exception:
+                    disk = 0.0
 
                 net = psutil.net_io_counters()
                 sent_delta = max(0, net.bytes_sent - prev_net.bytes_sent)
