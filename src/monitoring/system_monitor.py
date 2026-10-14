@@ -28,17 +28,22 @@ def check_and_fix_csv(file_path=DATA_FILE):
     Returns True if CSV exists with exact 11 COLUMNS header.
     If the file exists but has an invalid header, backs it up and resets the header safely.
     """
-    if not file_path.exists():
+    target = Path(file_path)
+    if not target.exists():
         return False
     try:
-        if file_path.stat().st_size == 0:
+        if target.stat().st_size == 0:
             return False
-        existing = pd.read_csv(file_path, nrows=1)
-        if existing.columns.tolist() == COLUMNS:
+        with open(target, "r", encoding="utf-8", errors="ignore") as f:
+            first_line = f.readline().strip().split(",")
+        if first_line == COLUMNS:
             return True
         # If columns do not match, safely preserve old file and signal header recreation
-        backup_corrupt = file_path.parent / f"system_data_badheader_{int(time.time())}.csv"
-        file_path.rename(backup_corrupt)
+        backup_corrupt = target.parent / f"system_data_badheader_{int(time.time())}.csv"
+        try:
+            target.rename(backup_corrupt)
+        except Exception:
+            pass
         return False
     except Exception:
         return False

@@ -11,13 +11,11 @@ _last_sample_time = time.time()
 NUM_CPUS = psutil.cpu_count() or 1
 OWN_PID = os.getpid()
 
+from src.monitoring.allowlist import SYSTEM_ALLOWLIST
+
 PROTECTED_PROCESSES = {
-    "system", "unknown", "system idle process", "registry",
-    "explorer.exe", "svchost.exe", "lsass.exe", "csrss.exe",
-    "winlogon.exe", "smss.exe", "services.exe", "dwm.exe",
-    "fontdrvhost.exe", "sihost.exe", "taskhostw.exe", "ctfmon.exe",
-    "conhost.exe"
-}
+    "system", "unknown", "system idle process", "registry"
+} | {p.lower() for p in SYSTEM_ALLOWLIST.keys()}
 
 def is_process_currently_running(process_name):
     """
@@ -165,3 +163,56 @@ def kill_top_cpu_process(proc_name, excluded_pids=None):
     if killed_any:
         return True, " | ".join(messages)
     return False, f"No active process matching '{proc_name}' could be terminated."
+
+def get_process_info(proc_name):
+    """
+    Retrieves execution details for a given process name, including:
+    - Active PIDs
+    - Total RSS memory usage in MB
+    - Process instance count
+    - Executable path
+    - Command line arguments
+    """
+    if not proc_name or proc_name.lower() in ("system", "unknown", "system idle process"):
+        return {"pids": [], "count": 0, "memory_mb": 0.0, "exe": "System Process", "cmdline": "System Kernel"}
+    
+    pname_clean = proc_name.strip().lower()
+    base_name = pname_clean[:-4] if pname_clean.endswith(".exe") else pname_clean
+    
+    pids = []
+    total_mem_mb = 0.0
+    exe_path = ""
+    cmdline = ""
+    
+    for p in psutil.process_iter(['pid', 'name', 'cmdline', 'exe', 'memory_info']):
+        try:
+            name = (p.info.get('name') or "").strip().lower()
+            cmd = " ".join(p.info.get('cmdline') or []).lower()
+            is_match = False
+            if "controlled_workload" in pname_clean and "controlled_workload" in cmd:
+                is_match = True
+            elif name:
+                proc_base = name[:-4] if name.endswith(".exe") else name
+                if name == pname_clean or proc_base == base_name:
+                    is_match = True
+            
+            if is_match:
+                pids.append(p.info['pid'])
+                mem = p.info.get('memory_info')
+                if mem:
+                    total_mem_mb += mem.rss / (1024 * 1024)
+                if not exe_path and p.info.get('exe'):
+                    exe_path = p.info.get('exe')
+                if not cmdline and p.info.get('cmdline'):
+                    cmdline = " ".join(p.info.get('cmdline'))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+            
+    return {
+        "pids": pids,
+        "count": len(pids),
+        "memory_mb": round(total_mem_mb, 1),
+        "exe": exe_path or f"{proc_name}",
+        "cmdline": (cmdline[:120] + "...") if len(cmdline) > 120 else (cmdline or proc_name)
+    }
+

@@ -42,6 +42,8 @@ def compute_xai_explanations(current_row, stats, features):
     Computes Explainable AI (XAI) Z-score attributions relative to baseline means and stds.
     Returns list of explanation dicts for features with |z| >= 1.5.
     """
+    if not current_row or not hasattr(current_row, "get"):
+        return []
     if not stats or not isinstance(stats, dict) or "mean" not in stats or "std" not in stats:
         return []
         

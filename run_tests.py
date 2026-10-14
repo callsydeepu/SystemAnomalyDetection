@@ -58,6 +58,32 @@ def main():
         tr.test_retraining_lifecycle_and_continuous_dataset()
         print("   -> PASSED")
 
+        print("\n8. Testing Anomaly Notification, Real-Time SSE Broker, Bottom-Right Toast, Ignore & Kill Actions...")
+        import tests.test_anomaly_notification as tan
+        tan.test_get_process_info_structure()
+        tan.test_known_anomaly_ignore_and_whitelist_logging()
+        tan.test_unknown_anomaly_kill_logging()
+        tan.test_protected_process_kill_immunity()
+        tan.test_snooze_alert_behavior()
+        tan.test_realtime_broker_normal_activity_zero_events()
+        tan.test_realtime_broker_anomaly_detection_payload()
+        tan.test_realtime_broker_deduplication_cooldown()
+        tan.test_realtime_sse_server_streaming_and_reconnection()
+        print("   -> PASSED")
+
+        print("\n9. Testing Robust Windows System Process Allowlist Engine...")
+        import tests.test_allowlist as tal
+        tal.test_canonical_system_processes_defined()
+        tal.test_normal_activity_system_process_suppressed()
+        tal.test_high_cpu_resource_anomaly_triggers_alert()
+        tal.test_masquerading_untrusted_path_not_trusted()
+        tal.test_unknown_process_eligible_for_detection()
+        tal.test_predictor_integration_with_allowlist()
+        tal.test_suppressed_alerts_logged_in_audit_db()
+        tal.test_realtime_broker_publishes_genuine_and_resource_anomalies()
+        tal.test_protected_processes_termination_immunity()
+        print("   -> PASSED")
+
         print("\n" + "=" * 60)
         print("  ALL VERIFICATION TESTS PASSED SUCCESSFULLY!")
         print("=" * 60)
