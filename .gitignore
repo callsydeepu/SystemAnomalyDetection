@@ -18,6 +18,8 @@ models/*.pkl
 # Logs and databases
 *.log
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 scratch/
